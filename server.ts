@@ -37,25 +37,66 @@ async function startServer() {
   // API Routes
   app.get('/api/price', async (req, res) => {
     try {
+      const asset = (req.query.asset as string) || 'bitcoin';
       // Try real API first with a timeout
       const response = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
         params: {
-          ids: 'bitcoin',
+          ids: asset,
           vs_currencies: 'inr',
           include_24hr_change: 'true',
           include_24hr_high_low: 'true'
         },
-        timeout: 3000 // 3s timeout for speed
+        timeout: 4000 
       });
-      res.json(response.data.bitcoin);
+      res.json(response.data[asset] || {});
     } catch (error) {
-      console.warn('CoinGecko API too slow or failed. Using local simulation.json fallback.');
+      console.warn(`CoinGecko API error for ${req.query.asset}. Using local fallback.`);
       const fallback = await getFallbackData();
-      if (fallback) {
-        res.json(fallback.bitcoin);
+      const asset = (req.query.asset as string) || 'bitcoin';
+      if (fallback && fallback[asset]) {
+        res.json(fallback[asset]);
       } else {
-        res.status(500).json({ error: 'Failed to fetch BTC price' });
+        res.json({
+          inr: asset === 'bitcoin' ? 5842000 : (asset === 'ethereum' ? 220000 : 8000),
+          inr_24h_change: 1.25,
+          inr_24h_high: asset === 'bitcoin' ? 6000000 : 250000,
+          inr_24h_low: asset === 'bitcoin' ? 5700000 : 210000
+        });
       }
+    }
+  });
+
+  app.get('/api/market-delta', async (req, res) => {
+    try {
+      const asset = (req.query.asset as string) || 'bitcoin';
+      const range = (req.query.range as string) || '1';
+      
+      const response = await axios.get(`https://api.coingecko.com/api/v3/coins/${asset}/market_chart`, {
+        params: {
+          vs_currency: 'inr',
+          days: range,
+          interval: range === '1' ? 'hourly' : 'daily'
+        },
+        timeout: 5000
+      });
+
+      // Transform data for recharts
+      const chartData = response.data.prices.map(([timestamp, price]: [number, number]) => ({
+        time: new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        date: new Date(timestamp).toLocaleDateString(),
+        price: price
+      }));
+
+      res.json(chartData);
+    } catch (error) {
+      console.error('Market chart fetch failed, sending mock data');
+      // Mock chart data if API fails
+      const points = 24;
+      const mockData = Array.from({ length: points }).map((_, i) => ({
+        time: `${i}:00`,
+        price: 5800000 + Math.random() * 200000,
+      }));
+      res.json(mockData);
     }
   });
 

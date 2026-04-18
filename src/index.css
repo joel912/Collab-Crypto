@@ -48,6 +48,16 @@
     background: radial-gradient(circle, #f7931a 0%, transparent 70%);
   }
 
+  @keyframes shimmer {
+    0% { opacity: 0.3; }
+    50% { opacity: 0.8; }
+    100% { opacity: 0.3; }
+  }
+
+  .shimmer {
+    animation: shimmer 1.5s infinite ease-in-out;
+  }
+
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
   }
