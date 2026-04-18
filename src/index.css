@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-headline: "Space Grotesk", sans-serif;
+  
+  --color-primary: #ffb874;
+  --color-primary-dark: #f7931a;
+  --color-background: #131313;
+  --color-surface: #201f1f;
+  --color-surface-low: #1c1b1b;
+  --color-tertiary: #86d2e3;
+}
+
+@layer utilities {
+  .glass-card {
+    background: linear-gradient(135deg, rgba(53, 53, 52, 0.6) 0%, rgba(19, 19, 19, 0.6) 100%);
+    backdrop-filter: blur(24px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  }
+  
+  .ghost-border {
+    outline: 1.5px solid rgba(255, 255, 255, 0.15);
+    outline-offset: -1.5px;
+  }
+  
+  .clay-button {
+    background-color: #ffb874;
+    box-shadow: 
+        0 8px 16px rgba(247, 147, 26, 0.4), 
+        inset 0 4px 8px rgba(255, 255, 255, 0.7), 
+        inset 0 -6px 10px rgba(111, 59, 0, 0.4),
+        inset 0 1px 1px rgba(255, 255, 255, 0.8);
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  
+  .clay-button:active {
+    transform: translateY(2px);
+    box-shadow: 
+        0 4px 8px rgba(247, 147, 26, 0.3), 
+        inset 0 2px 4px rgba(255, 255, 255, 0.5), 
+        inset 0 -3px 5px rgba(111, 59, 0, 0.4);
+  }
+
+  .orb-glow {
+    filter: blur(40px);
+    background: radial-gradient(circle, #f7931a 0%, transparent 70%);
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
