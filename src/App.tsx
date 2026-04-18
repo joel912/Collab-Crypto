@@ -12,7 +12,9 @@ import {
   TrendingUp,
   Cpu,
   ArrowUpRight,
-  PiggyBank
+  PiggyBank,
+  Loader2,
+  Check
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -42,9 +44,66 @@ export default function App() {
   const [harvestingActive, setHarvestingActive] = useState(true);
   const [activeTab, setActiveTab] = useState<'core' | 'portfolio' | 'tax' | 'settings'>('core');
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isHarvesting, setIsHarvesting] = useState(false);
+  const [harvestSuccess, setHarvestSuccess] = useState(false);
   const [agentStatus, setAgentStatus] = useState<'nominal' | 'optimizing' | 'harvesting'>('nominal');
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+
+  const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
+  const [isChartPulsing, setIsChartPulsing] = useState(false);
+  const [simulatorAsset, setSimulatorAsset] = useState(() => localStorage.getItem('simulatorAsset') || 'BTC');
+  const [monthlyAmount, setMonthlyAmount] = useState(() => localStorage.getItem('monthlyAmount') || '10000');
+
+  const assets = [
+    { id: 'BTC', name: 'Bitcoin', cap: '₹105T', color: 'text-orange-500', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
+    { id: 'ETH', name: 'Ethereum', cap: '₹22T', color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+    { id: 'SOL', name: 'Solana', cap: '₹4.5T', color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500/20' },
+    { id: 'MATIC', name: 'Polygon', cap: '₹0.8T', color: 'text-indigo-500', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20' },
+  ];
+
+  const filteredAssets = useMemo(() => {
+    if (!searchQuery) return [];
+    return assets.filter(a => 
+      a.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      a.id.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [searchQuery]);
+
+  useEffect(() => {
+    localStorage.setItem('simulatorAsset', simulatorAsset);
+    localStorage.setItem('monthlyAmount', monthlyAmount);
+    localStorage.setItem('harvestingActive', String(harvestingActive));
+    localStorage.setItem('showNotifications', String(showNotifications));
+  }, [simulatorAsset, monthlyAmount, harvestingActive, showNotifications]);
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (query.length > 1) {
+      setShowSearchDropdown(true);
+      if (query.toLowerCase().includes('btc') || query.toLowerCase().includes('bitcoin')) {
+        addLog(`Analyzing market search intent: ${query.toUpperCase()}${query.length < 5 ? '... fetching deep liquidity pools.' : ''}`, 'market');
+      }
+    } else {
+      setShowSearchDropdown(false);
+    }
+  };
+
+  const selectAsset = (asset: string) => {
+    setSelectedAsset(asset);
+    setSearchQuery(asset === 'BTC' ? 'Bitcoin' : asset);
+    setShowSearchDropdown(false);
+    setActiveTab('portfolio');
+    setSimulatorAsset(asset);
+    
+    // Agent acknowledgment
+    addLog(`Focusing Collab-Crypto Agent on ${asset === 'BTC' ? 'Bitcoin (BTC)' : asset} portfolio...`, 'core');
+    
+    // Visual Pulse
+    setIsChartPulsing(true);
+    setTimeout(() => setIsChartPulsing(false), 2000);
+  };
 
   const notifications = [
     { id: '1', title: 'DCA Executed', message: '₹10,000 processed via kernel X-041', time: '2h ago' },
@@ -64,9 +123,10 @@ export default function App() {
 
     const fetchData = async () => {
       try {
+        const cacheBuster = `t=${Date.now()}`;
         const [simRes, priceRes] = await Promise.all([
-          fetch('/api/simulation').then(r => r.json()),
-          fetch('/api/btc-price').then(r => r.json())
+          fetch(`/api/simulate-dca?${cacheBuster}`).then(r => r.json()),
+          fetch(`/api/price?${cacheBuster}`).then(r => r.json())
         ]);
         setSimulation(simRes);
         setPriceInfo(priceRes);
@@ -75,11 +135,17 @@ export default function App() {
       }
     };
 
-    // Fetch data on mount
+    // Fetch data on mount and set up intervals
     useEffect(() => {
       fetchData();
 
-      // Stream fake reasoning steps every 12 seconds (slowed down for better readability)
+      // Refresh market data every 30 seconds
+      const priceInterval = setInterval(() => {
+        fetchData();
+        addLog('Real-time price feed synchronized with CoinGecko API.', 'market');
+      }, 30000);
+
+      // Stream fake reasoning steps every 12 seconds
       const interval = setInterval(() => {
           const types: ('core'|'tax'|'market')[] = ['core', 'tax', 'market'];
           const messages = [
@@ -146,67 +212,123 @@ export default function App() {
     const nextStatus = statuses[(currentIndex + 1) % statuses.length];
     setAgentStatus(nextStatus);
     addLog(`Agent diagnostics triggered. Switching kernel profile to: ${nextStatus.toUpperCase()}.`, 'core');
+    
+    // Force a fresh market check when agent status changes
+    fetchData(); 
   };
 
-  const handleExecuteTransaction = async () => {
+  const handleExecute = async () => {
+    console.log('Attempting API Call...');
     setIsExecuting(true);
-    const newLog: ReasoningStep = {
-        id: `exec-${Date.now()}`,
-        type: 'core',
-        message: 'Initiating autonomous DCA execution protocols...',
-        timestamp: new Date().toISOString()
-    };
-    setLogs(prev => [newLog, ...prev].slice(0, 15));
+    try {
+      const cacheBuster = `t=${Date.now()}`;
+      const response = await fetch(`/api/execute?${cacheBuster}`, { method: 'POST' });
+      const data = await response.json();
+      console.log('Data Received:', data);
+      
+      // Keep existing logic for UI state
+      const simRes = await fetch(`/api/simulate-dca?amount=${monthlyAmount}&asset=${simulatorAsset}&${cacheBuster}`);
+      const simData = await simRes.json();
+      
+      setTimeout(() => {
+          setSimulation(simData);
+          addLog(`DCA Strategy Executed: ${data.message}. New Balance Segment: ${data.newBalance} BTC`, 'core');
+          setIsExecuting(false);
+      }, 1500);
+    } catch (err) {
+      console.error('Network Error:', err);
+      setIsExecuting(false);
+    }
+  };
+
+  const handleHarvestTax = async () => {
+    console.log('Harvest Button Clicked!');
+    if (!simulation || !priceInfo || !taxAnalysis.unrealizedLosses) return;
+    
+    setIsHarvesting(true);
+    setHarvestSuccess(false);
+    
+    addLog('Tax-loss harvesting confirmed. Recalculating net position under Section 115BBH...', 'tax');
+
+    const currentPrice = priceInfo.inr || simulation.currentBtcPrice;
+    const lossLotsIds = simulation.lots
+      .filter(lot => currentPrice < lot.purchasePrice)
+      .map(lot => lot.id);
 
     try {
-        const res = await fetch('/api/execute', {
+        const res = await fetch('/api/tax-harvest', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount: 10000, asset: 'BTC' })
+            body: JSON.stringify({ lossLotsIds })
         });
         const data = await res.json();
         
         setTimeout(() => {
-            const successLog: ReasoningStep = {
-                id: `success-${Date.now()}`,
-                type: 'core',
-                message: data.message,
-                timestamp: new Date().toISOString()
-            };
-            setLogs(prev => [successLog, ...prev].slice(0, 15));
-            setIsExecuting(false);
-            fetchData(); // Refresh simulation data
-        }, 1500);
+            addLog(data.message, 'tax');
+            setHarvestSuccess(true);
+            setIsHarvesting(false);
+            
+            // To visibly decrease the figure, we simulate the "post-harvest" state 
+            // by filtering out the harvested lots from the local simulation state
+            setSimulation(prev => {
+                if (!prev) return null;
+                return {
+                    ...prev,
+                    lots: prev.lots.filter(lot => !lossLotsIds.includes(lot.id))
+                };
+            });
+            
+            // Reset success state after visual confirmation
+            setTimeout(() => setHarvestSuccess(false), 3000);
+        }, 2000);
     } catch (err) {
-        console.error('Execution failed', err);
-        setIsExecuting(false);
+        console.error('Harvesting failed', err);
+        setIsHarvesting(false);
     }
   };
 
-  const potentialSavings = useMemo(() => {
-    if (!simulation || !priceInfo) return 0;
-    // Calculate potential tax savings from loss harvesting
-    // India tax: 30% flat on gains. 
-    // This optimization identifies lots currently in red.
+  const taxAnalysis = useMemo(() => {
+    if (!simulation || !priceInfo) return { totalLiability: 0, unrealizedLosses: 0 };
+    
     const currentPrice = priceInfo.inr || simulation.currentBtcPrice;
-    let harvestingLoss = 0;
+    let totalLiability = 0;
+    let unrealizedLosses = 0;
+
     simulation.lots.forEach(lot => {
-        if (currentPrice < lot.purchasePrice) {
-            harvestingLoss += (lot.purchasePrice - currentPrice) * lot.btcAmount;
+        const valueChange = (currentPrice - lot.purchasePrice) * lot.btcAmount;
+        if (valueChange > 0) {
+            // 30% flat tax on gains per lot
+            totalLiability += valueChange * 0.3;
+        } else {
+            // Total losses (cannot be offset)
+            unrealizedLosses += Math.abs(valueChange);
         }
     });
-    // Savings = 30% of realized loss (hypothetical offset)
-    return harvestingLoss * 0.3;
+
+    return { totalLiability, unrealizedLosses };
   }, [simulation, priceInfo]);
 
   const chartData = useMemo(() => {
     if (!simulation) return [];
-    return simulation.lots.map(lot => ({
+    const lotsData = simulation.lots.map(lot => ({
         date: new Date(lot.date).toLocaleDateString('en-IN', { month: 'short' }),
-        price: lot.purchasePrice,
-        amount: lot.btcAmount
+        price: Math.round(lot.purchasePrice),
+        amount: lot.btcAmount,
+        type: 'historical'
     }));
-  }, [simulation]);
+
+    // Add current live price as a final bar
+    if (priceInfo?.inr) {
+        lotsData.push({
+            date: 'LIVE',
+            price: Math.round(priceInfo.inr),
+            amount: 0,
+            type: 'live'
+        });
+    }
+
+    return lotsData;
+  }, [simulation, priceInfo]);
 
   const allocationData = [
     { name: 'Bitcoin', value: 72, color: '#f7931a' },
@@ -255,12 +377,42 @@ export default function App() {
             <div className="relative hidden sm:block">
               <input 
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-[#0e0e0e] text-white border border-white/10 rounded-full px-6 py-2 w-64 focus:ring-1 focus:ring-tertiary transition-all placeholder:text-neutral-600" 
+                onChange={(e) => handleSearch(e.target.value)}
+                onFocus={() => searchQuery && setShowSearchDropdown(true)}
+                className="bg-[#0e0e0e] text-white border border-white/10 rounded-full px-6 py-2 w-64 focus:ring-1 focus:ring-primary transition-all placeholder:text-neutral-600 z-[210] relative" 
                 placeholder="Search assets..." 
                 type="text"
               />
-              <Search className="absolute right-4 top-2.5 w-4 h-4 text-neutral-500" />
+              <Search className="absolute right-4 top-2.5 w-4 h-4 text-neutral-500 z-[211]" />
+              
+              <AnimatePresence>
+                {showSearchDropdown && filteredAssets.length > 0 && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="absolute top-12 left-0 w-full glass-card ghost-border rounded-2xl p-2 shadow-2xl z-[205] overflow-hidden"
+                    >
+                        {filteredAssets.map(asset => (
+                            <div 
+                                key={asset.id}
+                                onClick={() => {
+                                    selectAsset(asset.id);
+                                }}
+                                className="flex items-center gap-3 p-3 hover:bg-white/5 rounded-xl transition-all cursor-pointer group"
+                            >
+                                <div className={cn("w-8 h-8 rounded-full flex items-center justify-center border", asset.bg, asset.border, "group-hover:opacity-80")}>
+                                    <span className={cn("font-bold text-[10px]", asset.color)}>{asset.id}</span>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-bold text-white uppercase tracking-wider">{asset.name}</p>
+                                    <p className="text-[10px] text-neutral-500">Market Cap: {asset.cap}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <div className="flex items-center gap-2 relative">
               <button 
@@ -342,10 +494,10 @@ export default function App() {
                 addLog('Portfolio balance element triggered manual verification. Re-syncing balances.', 'core');
               }}
               className={cn(
-                "p-8 rounded-lg bg-surface-low ghost-border relative overflow-hidden cursor-pointer group transition-all duration-500",
+                "p-8 rounded-lg relative overflow-hidden cursor-pointer group transition-all duration-700",
                 (searchQuery.toLowerCase().includes('btc') || searchQuery.toLowerCase().includes('bitcoin')) 
-                    ? "ring-2 ring-[#a2eeff] shadow-[0_0_30px_rgba(162,238,255,0.2)] bg-surface-high" 
-                    : "bg-surface-low"
+                    ? "ring-2 ring-primary shadow-[0_0_40px_rgba(247,147,26,0.3)] bg-surface-high scale-[1.01]" 
+                    : "bg-surface-low ghost-border"
               )}
             >
               <div className="relative z-10 transition-transform group-hover:translate-x-1">
@@ -369,7 +521,13 @@ export default function App() {
                 fetchData();
                 addLog('Price chart interaction detected. Fetching high-fidelity market deltas.', 'market');
               }}
-              className="glass-card ghost-border p-8 rounded-lg min-h-[450px] relative transition-all hover:bg-white/[0.02] cursor-pointer group"
+              className={cn(
+                "glass-card p-8 rounded-lg min-h-[450px] relative transition-all duration-700 hover:bg-white/[0.02] cursor-pointer group",
+                (searchQuery.toLowerCase().includes('btc') || searchQuery.toLowerCase().includes('bitcoin')) 
+                    ? "ring-2 ring-primary shadow-[0_0_40px_rgba(247,147,26,0.2)] border-primary/50" 
+                    : "ghost-border",
+                isChartPulsing && "animate-pulse ring-4 ring-primary shadow-[0_0_60px_rgba(247,147,26,0.4)]"
+              )}
             >
               <div className="flex justify-between items-center mb-8">
                 <div>
@@ -386,9 +544,17 @@ export default function App() {
               <div className="w-full h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData}>
+                    <XAxis 
+                      dataKey="date" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#666', fontSize: 10, fontWeight: 'bold' }}
+                      interval={0}
+                    />
                     <Tooltip 
                         cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                         contentStyle={{ backgroundColor: '#131313', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                        formatter={(value: number) => [formatINR(value), 'Price']}
                     />
                     <Bar dataKey="price" radius={[4, 4, 0, 0]}>
                       {chartData.map((entry, index) => (
@@ -530,22 +696,36 @@ export default function App() {
             <section className="glass-card ghost-border p-8 rounded-lg relative overflow-hidden">
               <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h3 className="font-headline text-xl font-bold">Tax Optimizer</h3>
-                  <p className="text-tertiary text-[10px] font-bold tracking-widest uppercase">FY 2024-25</p>
+                  <h3 className="font-headline text-xl font-bold">VDA Tax Monitor</h3>
+                  <p className="text-tertiary text-[10px] font-bold tracking-widest uppercase italic">Regulatory: 115BBH</p>
                 </div>
-                <PiggyBank className="w-6 h-6 text-primary" />
+                <PiggyBank className="w-6 h-6 text-red-400" />
               </div>
-              <div className="mb-8">
-                <p className="text-[10px] text-neutral-500 uppercase font-bold tracking-tighter mb-1">Potential Savings</p>
-                <div className="flex items-baseline gap-2">
-                    <p className="text-3xl font-headline font-black text-primary">₹{potentialSavings.toLocaleString('en-IN')}</p>
-                    <ArrowUpRight className="w-4 h-4 text-primary animate-bounce" />
+
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div>
+                    <p className="text-[10px] text-neutral-500 uppercase font-bold tracking-tighter mb-1">Est. Tax Liability</p>
+                    <p className="text-2xl font-headline font-black text-red-500">₹{Math.round(taxAnalysis.totalLiability).toLocaleString('en-IN')}</p>
+                </div>
+                <div>
+                    <p className="text-[10px] text-neutral-500 uppercase font-bold tracking-tighter mb-1">Unrealized Loss</p>
+                    <p className="text-2xl font-headline font-black text-neutral-400">₹{Math.round(taxAnalysis.unrealizedLosses).toLocaleString('en-IN')}</p>
                 </div>
               </div>
+
+              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl mb-6">
+                <div className="flex gap-3">
+                    <ShieldCheck className="w-4 h-4 text-red-500 shrink-0" />
+                    <p className="text-[10px] leading-relaxed text-red-200 uppercase font-bold">
+                        Regulatory Alert: Losses from VDA assets cannot be used to offset gains from other VDA assets or income sources.
+                    </p>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between p-4 bg-black/40 rounded-xl border border-white/5 transition-all hover:bg-black/60">
                 <div>
-                  <p className="text-sm font-bold">Tax Loss Harvesting</p>
-                  <p className="text-[10px] text-neutral-500 uppercase">Automated Offset</p>
+                  <p className="text-sm font-bold">Tax-Aware Strategy</p>
+                  <p className="text-[10px] text-neutral-500 uppercase">Per-Lot Optimization</p>
                 </div>
                 <button 
                   onClick={() => setHarvestingActive(!harvestingActive)}
@@ -563,12 +743,28 @@ export default function App() {
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleExecuteTransaction();
-                  addLog('Manual Tax Harvesting routine initiated from Dashboard card.', 'tax');
+                  handleHarvestTax();
                 }}
-                className="w-full mt-6 py-4 rounded-full font-headline font-bold text-black clay-button text-sm uppercase tracking-widest active:scale-95 transition-transform"
+                disabled={isHarvesting || taxAnalysis.unrealizedLosses === 0}
+                className={cn(
+                  "w-full mt-6 py-4 rounded-full font-headline font-bold text-black text-sm uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-3 z-[999] relative",
+                  harvestSuccess ? "bg-green-500 shadow-[0_0_20px_#22c55e]" : "clay-button bg-primary",
+                  (isHarvesting || taxAnalysis.unrealizedLosses === 0) && "opacity-50 cursor-not-allowed"
+                )}
               >
-                Execute Optimization
+                {isHarvesting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin text-black" />
+                    <span>Processing...</span>
+                  </>
+                ) : harvestSuccess ? (
+                  <>
+                    <Check className="w-5 h-5 text-black" />
+                    <span>Harvest Successful</span>
+                  </>
+                ) : (
+                  "Sync Tax Report"
+                )}
               </button>
             </section>
           </div>
@@ -576,6 +772,41 @@ export default function App() {
 
           {activeTab === 'portfolio' && (
             <div className="lg:col-span-20 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-8 rounded-2xl w-full col-span-1">
+                    <h2 className="font-headline text-2xl font-black mb-6 flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-primary" />
+                        DCA Simulator
+                    </h2>
+                    <div className="space-y-6">
+                        <div>
+                            <label className="text-[10px] text-neutral-500 uppercase font-bold tracking-widest mb-2 block">Target Asset</label>
+                            <input 
+                                value={simulatorAsset}
+                                onChange={(e) => setSimulatorAsset(e.target.value)}
+                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 focus:ring-1 focus:ring-primary transition-all font-bold"
+                                placeholder="BTC, ETH..."
+                            />
+                        </div>
+                        <div>
+                            <label className="text-[10px] text-neutral-500 uppercase font-bold tracking-widest mb-2 block">Monthly Amount (INR)</label>
+                            <div className="relative">
+                                <span className="absolute left-4 top-3.5 text-neutral-500 font-bold">₹</span>
+                                <input 
+                                    value={monthlyAmount}
+                                    onChange={(e) => setMonthlyAmount(e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-8 py-3 focus:ring-1 focus:ring-primary transition-all font-bold"
+                                />
+                            </div>
+                        </div>
+                        <button 
+                            onClick={handleExecute}
+                            className="w-full py-4 rounded-xl font-headline font-bold text-black bg-primary uppercase tracking-widest active:scale-95 transition-transform z-[999] relative"
+                        >
+                            Run Simulation
+                        </button>
+                    </div>
+                </motion.div>
+
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card p-8 rounded-2xl w-full col-span-1">
                     <h2 className="font-headline text-2xl font-black mb-4">Investment History</h2>
                     <div className="space-y-4">
@@ -614,8 +845,8 @@ export default function App() {
                             <p className="text-neutral-400">Section 115BBH Optimization Engine</p>
                         </div>
                         <div className="text-right">
-                            <p className="text-xs text-neutral-500 font-bold uppercase">Total Tax Liability</p>
-                            <p className="text-3xl font-black text-red-500">₹{simulation ? Math.round(simulation.totalInvested * 0.05).toLocaleString() : '0'}</p>
+                            <p className="text-xs text-neutral-500 font-bold uppercase">Estimated Liability</p>
+                            <p className="text-3xl font-black text-red-500">₹{Math.round(taxAnalysis.totalLiability).toLocaleString()}</p>
                         </div>
                     </div>
                     
@@ -628,13 +859,13 @@ export default function App() {
                             <p className="text-[10px] text-neutral-500 uppercase font-bold mb-1">1% TDS</p>
                             <p className="text-xl font-bold">Deducted At Source</p>
                         </div>
-                        <div className="p-6 bg-tertiary/10 rounded-2xl border border-tertiary/20">
-                            <p className="text-[10px] text-tertiary uppercase font-bold mb-1">Tax Loss Harvest</p>
-                            <p className="text-xl font-bold">₹{potentialSavings.toLocaleString()}</p>
+                        <div className="p-6 bg-red-400/10 rounded-2xl border border-red-400/20">
+                            <p className="text-[10px] text-red-400 uppercase font-bold mb-1">Unrealized Loss</p>
+                            <p className="text-xl font-bold">₹{Math.round(taxAnalysis.unrealizedLosses).toLocaleString()}</p>
                         </div>
                         <div className="p-6 bg-primary/10 rounded-2xl border border-primary/20">
-                            <p className="text-[10px] text-primary uppercase font-bold mb-1">Net Savings</p>
-                            <p className="text-xl font-bold text-primary">₹{(potentialSavings * 0.8).toLocaleString()}</p>
+                            <p className="text-[10px] text-primary uppercase font-bold mb-1">Net Gain (Post-Tax)</p>
+                            <p className="text-xl font-bold text-primary">₹{Math.round(taxAnalysis.totalLiability / 0.3 * 0.7).toLocaleString()}</p>
                         </div>
                     </div>
                 </motion.div>
@@ -642,8 +873,28 @@ export default function App() {
                 {/* Re-using the Tax Optimizer Card here */}
                 <section className="glass-card ghost-border p-8 rounded-lg relative overflow-hidden max-w-xl mx-auto">
                     <h3 className="font-headline text-xl font-bold mb-6">Optimization Execution</h3>
-                    <button className="w-full py-4 rounded-full font-headline font-bold text-black clay-button text-sm uppercase tracking-widest active:scale-95 transition-transform">
-                        Confirm Tax Harvesting
+                    <button 
+                      onClick={handleHarvestTax}
+                      disabled={isHarvesting || taxAnalysis.unrealizedLosses === 0}
+                      className={cn(
+                        "w-full py-4 rounded-full font-headline font-bold text-black text-sm uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-3 z-[999] relative",
+                        harvestSuccess ? "bg-green-500 shadow-[0_0_20px_#22c55e]" : "clay-button bg-primary",
+                        (isHarvesting || taxAnalysis.unrealizedLosses === 0) && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                        {isHarvesting ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin text-black" />
+                            <span>Processing...</span>
+                          </>
+                        ) : harvestSuccess ? (
+                          <>
+                            <Check className="w-5 h-5 text-black" />
+                            <span>Harvest Successful</span>
+                          </>
+                        ) : (
+                          "Confirm Tax Harvesting"
+                        )}
                     </button>
                 </section>
             </div>
@@ -682,7 +933,13 @@ export default function App() {
                             </div>
                         </div>
                         <div className="pt-4">
-                            <button className="text-red-400 text-sm font-bold border border-red-400/20 px-4 py-2 rounded-full hover:bg-red-400/10 transition-colors">
+                            <button 
+                                onClick={() => {
+                                    localStorage.clear();
+                                    window.location.reload();
+                                }}
+                                className="text-red-400 text-sm font-bold border border-red-400/20 px-4 py-2 rounded-full hover:bg-red-400/10 transition-colors"
+                            >
                                 Reset Agent Collab-Crypto X-041
                             </button>
                         </div>
@@ -746,10 +1003,10 @@ export default function App() {
           </div>
           <div className="ml-auto">
             <button 
-                onClick={handleExecuteTransaction}
+                onClick={handleExecute}
                 disabled={isExecuting}
                 className={cn(
-                    "clay-button px-6 py-2.5 rounded-full text-black font-headline font-bold text-xs uppercase tracking-widest active:scale-95 transition-transform",
+                    "clay-button px-6 py-2.5 rounded-full text-black font-headline font-bold text-xs uppercase tracking-widest active:scale-95 transition-transform z-[999] relative",
                     isExecuting && "opacity-50 cursor-not-allowed"
                 )}
             >

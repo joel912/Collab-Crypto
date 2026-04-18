@@ -1,0 +1,43 @@
+{
+  "bitcoin": {
+    "inr": 5842000,
+    "inr_24h_change": 4.25,
+    "inr_24h_high": 5910000,
+    "inr_24h_low": 5780000
+  },
+  "dca_simulation": {
+    "totalBtc": 1.254,
+    "totalInvested": 120000,
+    "currentBtcPrice": 5842000,
+    "taxRules": {
+      "flatTax": 0.3,
+      "tds": 0.01
+    },
+    "lots": [
+      {
+        "id": "lot-0",
+        "date": "2025-05-18T00:00:00.000Z",
+        "purchasePrice": 6200000,
+        "btcAmount": 0.1,
+        "inrValueAtPurchase": 620000,
+        "tdsPaid": 6200
+      },
+      {
+        "id": "lot-1",
+        "date": "2025-06-18T00:00:00.000Z",
+        "purchasePrice": 5400000,
+        "btcAmount": 0.15,
+        "inrValueAtPurchase": 810000,
+        "tdsPaid": 8100
+      },
+      {
+        "id": "lot-2",
+        "date": "2025-07-18T00:00:00.000Z",
+        "purchasePrice": 5900000,
+        "btcAmount": 0.12,
+        "inrValueAtPurchase": 708000,
+        "tdsPaid": 7080
+      }
+    ]
+  }
+}
